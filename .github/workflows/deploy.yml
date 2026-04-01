@@ -1,0 +1,32 @@
+name: VM Deploy translator + Ollama
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.1
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_ADMIN }}
+          password: ${{ secrets.ADMIN_PASSWORD }}
+          script: |
+            set -e
+            cd ${{ secrets.REPO_NAME }}
+            git pull origin main
+            docker compose down
+            docker compose up --build -d
+            docker compose exec -T ollama ollama pull qwen3:0.6b
