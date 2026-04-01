@@ -122,6 +122,10 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.cursor/
+.python-version
+uv.lock
+pyproject.toml
 env/
 venv/
 ENV/
