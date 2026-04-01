@@ -1,2 +1,5 @@
-Flask==3.0.0
+fastapi==0.115.6
+httpx==0.28.1
+uvicorn[standard]==0.32.1
 pytest==7.4.0
+respx==0.22.0
