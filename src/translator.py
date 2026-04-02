@@ -1,4 +1,5 @@
 import os
+import re
 from typing import Any
 
 import httpx
@@ -49,8 +50,14 @@ def _httpx_timeout() -> httpx.Timeout:
     return httpx.Timeout(connect=connect, read=read, write=10.0, pool=5.0)
 
 
+def _strip_html(text: str) -> str:
+    """Remove HTML tags so the LLM receives plain text (NodeBB sends HTML)."""
+    return re.sub(r"<[^>]+>", "", text).strip()
+
+
 def translate_content(content: str) -> tuple[bool, str]:
-    return query_llm_robust(content)
+    plain = _strip_html(content) if content else content
+    return query_llm_robust(plain or content)
 
 
 def query_llm_robust(post: str) -> tuple[bool, str]:

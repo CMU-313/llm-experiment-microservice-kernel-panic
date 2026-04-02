@@ -152,3 +152,17 @@ def test_translate_content_delegates_to_query_llm_robust(
     monkeypatch.setattr("src.translator.query_llm_robust", fake)
     assert translate_content("hi") == (True, "ok")
     assert calls == ["hi"]
+
+
+def test_translate_content_strips_html(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def fake(post: str) -> tuple[bool, str]:
+        calls.append(post)
+        return (False, "translated")
+
+    monkeypatch.setattr("src.translator.query_llm_robust", fake)
+    assert translate_content("<p>Bonjour</p>") == (False, "translated")
+    assert calls == ["Bonjour"]
