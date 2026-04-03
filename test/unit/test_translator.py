@@ -60,6 +60,21 @@ _DEFAULT_CHAT_URL = "http://127.0.0.1:11434/api/chat"
             "x",
             (False, "Hi", "Italian"),
         ),
+        (
+            "**LANGUAGE:** French\nTRANSLATION: Hello",
+            "Bonjour",
+            (False, "Hello", "French"),
+        ),
+        (
+            "1. LANGUAGE: French\nTRANSLATION: Hello",
+            "Bonjour",
+            (False, "Hello", "French"),
+        ),
+        (
+            "Language: French\nTranslation: Hello",
+            "Bonjour",
+            (False, "Hello", "French"),
+        ),
     ],
 )
 def test_parse_model_content(
@@ -141,10 +156,10 @@ def test_query_llm_robust_posts_chat_and_parses_response(monkeypatch: pytest.Mon
         )
     )
 
-    is_english, text, lang = query_llm_robust("in")
+    is_english, text, language = query_llm_robust("in")
     assert is_english is True
     assert text == "out"
-    assert lang == "English"
+    assert language == "English"
     assert route.called
     payload = json.loads(route.calls[0].request.content.decode())
     assert payload["model"] == "qwen3:0.6b"
@@ -311,12 +326,12 @@ def test_translate_content_delegates_to_query_llm_robust(
 
 
 def test_translate_content_strips_html(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: list[str] = []
+    calls: list[str] = []
 
     def fake(post: str) -> tuple[bool, str, str | None]:
-        captured.append(post)
-        return (False, "Hello", "Spanish")
+        calls.append(post)
+        return (False, "translated", "French")
 
     monkeypatch.setattr("src.translator.query_llm_robust", fake)
-    translate_content("<p>Hola</p>")
-    assert captured == ["Hola"]
+    assert translate_content("<p>Bonjour</p>") == (False, "translated", "French")
+    assert calls == ["Bonjour"]

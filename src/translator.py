@@ -84,11 +84,13 @@ def _translation_reads_english(text: str) -> bool:
 
 
 def _normalize_response_line(line: str) -> str:
-    """Strip list markers and leading markdown so LANGUAGE:/TRANSLATION: can be found."""
+    """Strip list markers, markdown, and leading noise so language:/translation: match."""
     s = line.strip()
     s = re.sub(r"^(\d+\.|[*•-])\s+", "", s)
     while s.startswith("*"):
         s = s[1:].lstrip()
+    s = s.lstrip()
+    s = s.replace("*", "")
     return s.lstrip()
 
 
