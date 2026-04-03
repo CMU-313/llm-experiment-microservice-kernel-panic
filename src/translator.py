@@ -83,6 +83,15 @@ def _translation_reads_english(text: str) -> bool:
     return code == "en"
 
 
+def _normalize_response_line(line: str) -> str:
+    """Strip list markers and leading markdown so LANGUAGE:/TRANSLATION: can be found."""
+    s = line.strip()
+    s = re.sub(r"^(\d+\.|[*•-])\s+", "", s)
+    while s.startswith("*"):
+        s = s[1:].lstrip()
+    return s.lstrip()
+
+
 def _translate_only_prompt(post: str) -> str:
     return (
         "Translate the following into natural English. "
@@ -94,40 +103,43 @@ def _translate_only_prompt(post: str) -> str:
 def _strip_model_preamble(text: str) -> str:
     """Drop text before the structured reply (e.g. Qwen thinking blocks)."""
     text = text.strip()
-    for end_tag in ("</think>", "`</think>`", "</think>"):
+    for end_tag in ("</redacted_thinking>", "`</redacted_thinking>`", "</redacted_thinking>"):
         if end_tag in text:
             text = text.split(end_tag)[-1].strip()
     return text
 
 
-def _parse_model_content(raw: str, post: str) -> tuple[bool, str]:
+def _parse_model_content(raw: str, post: str) -> tuple[bool, str, str | None]:
     content = _strip_model_preamble(raw)
-    language = None
+    language: str | None = None
     translation = post
     for line in content.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        upper = stripped.upper()
-        if upper.startswith("LANGUAGE:"):
-            language = stripped.split(":", 1)[1].strip()
-            language = language.strip("*`\"' ")
-        elif upper.startswith("TRANSLATION:"):
-            translation = stripped.split(":", 1)[1].strip()
-            translation = translation.strip("*`\"' ")
+        norm = _normalize_response_line(line)
+        low = norm.lower()
+        if low.startswith("language:"):
+            language = norm.split(":", 1)[1].strip()
+            language = language.strip("*`\"' ").strip()
+        elif low.startswith("translation:"):
+            translation = norm.split(":", 1)[1].strip()
+            translation = translation.strip("*`\"' ").strip()
     if language is None:
-        return (True, post)
+        return (True, post, None)
     lang_lower = language.lower()
     is_english = lang_lower in ("english", "eng", "en") or lang_lower.startswith("english ")
     if not translation:
         translation = post
-    return (is_english, translation)
+    return (is_english, translation, language)
 
 
 def _httpx_timeout() -> httpx.Timeout:
     connect = float(os.environ.get("OLLAMA_TIMEOUT_CONNECT", "5.0"))
     read = float(os.environ.get("OLLAMA_TIMEOUT_READ", "90.0"))
     return httpx.Timeout(connect=connect, read=read, write=10.0, pool=5.0)
+
+
+def _strip_html(text: str) -> str:
+    """Remove HTML tags so the LLM receives plain text (NodeBB sends HTML)."""
+    return re.sub(r"<[^>]+>", "", text).strip()
 
 
 def _ollama_chat(user_text: str) -> Optional[str]:
@@ -153,17 +165,19 @@ def _ollama_chat(user_text: str) -> Optional[str]:
     return content
 
 
-def translate_content(content: str) -> tuple[bool, str]:
-    return query_llm_robust(content)
+def translate_content(content: str) -> tuple[bool, str, str | None]:
+    plain = _strip_html(content) if content else content
+    post = (plain or content or "").strip()
+    return query_llm_robust(post)
 
 
-def query_llm_robust(post: str) -> tuple[bool, str]:
+def query_llm_robust(post: str) -> tuple[bool, str, str | None]:
     input_en = _input_is_english(post)
     raw = _ollama_chat(_user_prompt(post))
     if raw is None:
-        return (input_en, post)
+        return (input_en, post, None)
 
-    is_eng, translation = _parse_model_content(raw, post)
+    is_eng, translation, detected_lang = _parse_model_content(raw, post)
 
     lang_code = _detect_lang_code(post)
     looks_foreign = lang_code is not None and lang_code != "en"
@@ -183,8 +197,8 @@ def query_llm_robust(post: str) -> tuple[bool, str]:
         if looks_foreign and not _translation_reads_english(translation):
             alt = try_translate_only()
             if alt:
-                return (input_en, alt)
-        return (input_en, translation)
+                return (input_en, alt, detected_lang)
+        return (input_en, translation, detected_lang)
 
     if looks_foreign and (
         translation.strip() == post.strip()
@@ -192,6 +206,6 @@ def query_llm_robust(post: str) -> tuple[bool, str]:
     ):
         alt = try_translate_only()
         if alt:
-            return (input_en, alt)
+            return (input_en, alt, detected_lang)
 
-    return (input_en, translation)
+    return (input_en, translation, detected_lang)

@@ -18,59 +18,56 @@ _DEFAULT_CHAT_URL = "http://127.0.0.1:11434/api/chat"
 
 
 @pytest.mark.parametrize(
-    ("raw", "post", "expected_english", "expected_text"),
+    ("raw", "post", "expected"),
     [
         (
             "LANGUAGE: English\nTRANSLATION: Hello, world.",
             "Hello, world.",
-            True,
-            "Hello, world.",
+            (True, "Hello, world.", "English"),
         ),
         (
             "LANGUAGE: French\nTRANSLATION: Good day.",
             "Bonjour.",
-            False,
-            "Good day.",
+            (False, "Good day.", "French"),
         ),
         (
             "TRANSLATION: only this line",
             "some input",
-            True,
-            "some input",
+            (True, "some input", None),
         ),
         (
             "</redacted_thinking>\nLANGUAGE: Spanish\nTRANSLATION: Hello.",
             "Hola",
-            False,
-            "Hello.",
+            (False, "Hello.", "Spanish"),
         ),
         (
             "LANGUAGE: German\nTRANSLATION: Hi there",
             "src",
-            False,
-            "Hi there",
+            (False, "Hi there", "German"),
         ),
         (
             "No LANGUAGE line at all.\nJust prose.",
             "orig",
-            True,
-            "orig",
+            (True, "orig", None),
         ),
         (
             "LANGUAGE: english\nTRANSLATION: Same",
             "x",
-            True,
-            "Same",
+            (True, "Same", "english"),
+        ),
+        (
+            "* LANGUAGE: Italian\nTRANSLATION: Hi",
+            "x",
+            (False, "Hi", "Italian"),
         ),
     ],
 )
 def test_parse_model_content(
     raw: str,
     post: str,
-    expected_english: bool,
-    expected_text: str,
+    expected: tuple[bool, str, str | None],
 ) -> None:
-    assert _parse_model_content(raw, post) == (expected_english, expected_text)
+    assert _parse_model_content(raw, post) == expected
 
 
 def test_user_prompt_includes_post_text() -> None:
@@ -144,9 +141,10 @@ def test_query_llm_robust_posts_chat_and_parses_response(monkeypatch: pytest.Mon
         )
     )
 
-    is_english, text = query_llm_robust("in")
+    is_english, text, lang = query_llm_robust("in")
     assert is_english is True
     assert text == "out"
+    assert lang == "English"
     assert route.called
     payload = json.loads(route.calls[0].request.content.decode())
     assert payload["model"] == "qwen3:0.6b"
@@ -162,7 +160,7 @@ def test_query_llm_robust_connect_error_returns_original(monkeypatch: pytest.Mon
     respx.post(_DEFAULT_CHAT_URL).mock(
         side_effect=httpx.ConnectError("refused", request=req),
     )
-    assert query_llm_robust("fall") == (True, "fall")
+    assert query_llm_robust("fall") == (True, "fall", None)
 
 
 @respx.mock
@@ -173,7 +171,7 @@ def test_query_llm_robust_missing_message_dict_returns_original(
     respx.post(_DEFAULT_CHAT_URL).mock(
         return_value=httpx.Response(200, json={"done": True}),
     )
-    assert query_llm_robust("z") == (True, "z")
+    assert query_llm_robust("z") == (True, "z", None)
 
 
 @respx.mock
@@ -187,7 +185,7 @@ def test_query_llm_robust_non_string_message_content_returns_original(
             json={"message": {"role": "assistant", "content": None}, "done": True},
         ),
     )
-    assert query_llm_robust("y") == (True, "y")
+    assert query_llm_robust("y") == (True, "y", None)
 
 
 @respx.mock
@@ -221,9 +219,10 @@ def test_query_llm_robust_translate_only_when_model_claims_english_but_spanish_t
         )
 
     respx.post(_DEFAULT_CHAT_URL).mock(side_effect=reply)
-    is_english, out = query_llm_robust(spanish)
+    is_english, out, lang = query_llm_robust(spanish)
     assert is_english is False
     assert out == "Hello, how are you?"
+    assert lang == "English"
 
 
 @respx.mock
@@ -256,9 +255,10 @@ def test_query_llm_robust_translate_only_when_translation_partially_differs(
         )
 
     respx.post(_DEFAULT_CHAT_URL).mock(side_effect=reply)
-    is_english, out = query_llm_robust(post)
+    is_english, out, lang = query_llm_robust(post)
     assert is_english is False
     assert out == "Hello, how are you?"
+    assert lang == "English"
 
 
 @respx.mock
@@ -290,9 +290,10 @@ def test_query_llm_robust_spanish_label_bad_translation_uses_translate_only(
         )
 
     respx.post(_DEFAULT_CHAT_URL).mock(side_effect=reply)
-    is_english, out = query_llm_robust(post)
+    is_english, out, lang = query_llm_robust(post)
     assert is_english is False
     assert out == "Good morning"
+    assert lang == "Spanish"
 
 
 def test_translate_content_delegates_to_query_llm_robust(
@@ -300,10 +301,22 @@ def test_translate_content_delegates_to_query_llm_robust(
 ) -> None:
     calls: list[str] = []
 
-    def fake(post: str) -> tuple[bool, str]:
+    def fake(post: str) -> tuple[bool, str, str | None]:
         calls.append(post)
-        return (True, "ok")
+        return (True, "ok", None)
 
     monkeypatch.setattr("src.translator.query_llm_robust", fake)
-    assert translate_content("hi") == (True, "ok")
+    assert translate_content("hi") == (True, "ok", None)
     assert calls == ["hi"]
+
+
+def test_translate_content_strips_html(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[str] = []
+
+    def fake(post: str) -> tuple[bool, str, str | None]:
+        captured.append(post)
+        return (False, "Hello", "Spanish")
+
+    monkeypatch.setattr("src.translator.query_llm_robust", fake)
+    translate_content("<p>Hola</p>")
+    assert captured == ["Hola"]
