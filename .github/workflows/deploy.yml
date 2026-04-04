@@ -2,8 +2,7 @@ name: VM Deploy translator + Ollama
 
 on:
   push:
-    branches:
-      - main
+    branches: [f25]
   workflow_dispatch:
 
 concurrency:
