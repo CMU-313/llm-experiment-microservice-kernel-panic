@@ -25,7 +25,7 @@ jobs:
           script: |
             set -e
             cd ${{ secrets.REPO_NAME }}
-            git pull origin main
+            git pull origin f25
             docker compose down
             docker compose up --build -d
             docker compose exec -T ollama ollama pull qwen3:0.6b
